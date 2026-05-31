@@ -1,0 +1,4 @@
+# Log files
+*.log
+# State tracking
+.last-error.txt
