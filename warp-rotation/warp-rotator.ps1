@@ -2,10 +2,21 @@ param(
   [switch]$SkipMonitor,
   [switch]$ForceRotate,
   [switch]$Logs,
+  [switch]$InternalHidden,
   [int]$PollInterval = 15,
   [string]$LogFile = "",
   [string]$NineRouterUrl = "http://localhost:20128"
 )
+
+# Auto-relaunch hidden when running without -Logs
+if (-not $Logs -and -not $InternalHidden) {
+  $argList = "-ExecutionPolicy Bypass -File `"$PSCommandPath`""
+  if ($SkipMonitor) { $argList += " -SkipMonitor" }
+  if ($ForceRotate) { $argList += " -ForceRotate" }
+  $argList += " -InternalHidden"
+  Start-Process powershell -WindowStyle Hidden -ArgumentList $argList
+  exit
+}
 
 $WarpCli     = "C:\Program Files\Cloudflare\Cloudflare WARP\warp-cli.exe"
 $ProxyPoolId = "0d130c94-d89a-4e86-a08b-0e3337dede81"
