@@ -1,6 +1,7 @@
 param(
   [switch]$SkipMonitor,
   [switch]$ForceRotate,
+  [switch]$Logs,
   [int]$PollInterval = 15,
   [string]$LogFile = "",
   [string]$NineRouterUrl = "http://localhost:20128"
@@ -12,7 +13,7 @@ $DataDir     = "$env:LOCALAPPDATA\Cloudflare\Warp"
 $StateFile   = "$PSScriptRoot\.last-error.txt"
 $LogPath     = if ($LogFile) { $LogFile } else { "$PSScriptRoot\warp-rotator.log" }
 
-function Log { param([string]$Msg) $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss"; "$t $Msg" | Out-File -FilePath $LogPath -Append; Write-Host "$t $Msg" }
+function Log { param([string]$Msg) $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss"; "$t $Msg" | Out-File -FilePath $LogPath -Append; if ($Logs) { Write-Host "$t $Msg" } }
 
 function Get-WarpStatus {
   try {

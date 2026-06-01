@@ -1,14 +1,15 @@
 param(
   [string]$NineRouterUrl = "http://localhost:20128",
   [int]$WarpPort = 40000,
-  [switch]$SkipMonitor
+  [switch]$SkipMonitor,
+  [switch]$Logs
 )
 
 $WarpCli = "C:\Program Files\Cloudflare\Cloudflare WARP\warp-cli.exe"
 $LogPath = "$PSScriptRoot\warp-setup.log"
 
-function Log { param([string]$Msg) $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss"; "$t $Msg" | Out-File -FilePath $LogPath -Append; Write-Host "$t $Msg" }
-function Step { param([string]$Msg) Write-Host "`n>>> $Msg" -ForegroundColor Cyan; Log ">>> $Msg" }
+function Log { param([string]$Msg) $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss"; "$t $Msg" | Out-File -FilePath $LogPath -Append; if ($Logs) { Write-Host "$t $Msg" } }
+function Step { param([string]$Msg) if ($Logs) { Write-Host "`n>>> $Msg" -ForegroundColor Cyan }; Log ">>> $Msg" }
 
 function Check-Command($cmd, $label) {
   if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
@@ -116,14 +117,17 @@ try {
   exit 1
 }
 
-Step "=== SETUP COMPLETE ==="
-Write-Host "OpenCode Free is now routed through Cloudflare Warp (SOCKS5 proxy)." -ForegroundColor Green
-Write-Host "Traffic goes: your app -> 9Router -> Warp ($warpIp) -> opencode.ai" -ForegroundColor Green
+if ($Logs) {
+  Step "=== SETUP COMPLETE ==="
+  Write-Host "OpenCode Free is now routed through Cloudflare Warp (SOCKS5 proxy)." -ForegroundColor Green
+  Write-Host "Traffic goes: your app -> 9Router -> Warp ($warpIp) -> opencode.ai" -ForegroundColor Green
+}
 
 if (-not $SkipMonitor) {
-  Write-Host "`nStarting warp-rotator monitor..." -ForegroundColor Yellow
-  & "PowerShell" -ExecutionPolicy Bypass -File "$PSScriptRoot\warp-rotator.ps1"
+  if ($Logs) { Write-Host "`nStarting warp-rotator monitor..." -ForegroundColor Yellow }
+  $rotatorArgs = @()
+  if ($Logs) { $rotatorArgs += "-Logs" }
+  & "PowerShell" -ExecutionPolicy Bypass -File "$PSScriptRoot\warp-rotator.ps1" @rotatorArgs
 } else {
-  Write-Host "`nTo start monitoring later: .\warp-rotator.ps1" -ForegroundColor Yellow
-  Write-Host "  (or run warp-setup.ps1 without -SkipMonitor)" -ForegroundColor Yellow
+  if ($Logs) { Write-Host "`nTo start monitoring later: .\warp-rotator.ps1" -ForegroundColor Yellow }
 }
