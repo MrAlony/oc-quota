@@ -124,7 +124,9 @@ if ($Logs) {
 }
 
 if (-not $SkipMonitor) {
-  if ($Logs) { Write-Host "`nStarting warp-rotator monitor..." -ForegroundColor Yellow }
+  if ($Logs) { Write-Host "`nKilling existing monitor instance..." -ForegroundColor Yellow }
+  & "PowerShell" -ExecutionPolicy Bypass -File "$PSScriptRoot\warp-stop.ps1" | Out-Null
+  if ($Logs) { Write-Host "Starting warp-rotator monitor..." -ForegroundColor Yellow }
   $rotatorArgs = @()
   if ($Logs) { $rotatorArgs += "-Logs" }
   & "PowerShell" -ExecutionPolicy Bypass -File "$PSScriptRoot\warp-rotator.ps1" @rotatorArgs

@@ -175,6 +175,10 @@ Log "9Router: $NineRouterUrl"
 Log "Warp CLI: $WarpCli"
 Log "Proxy Pool ID: $ProxyPoolId"
 
+$PidFile = "$PSScriptRoot\.monitor.pid"
+$PID | Out-File -FilePath $PidFile -NoNewline
+
+try {
 while ($true) {
   $warpStatus = Get-WarpStatus
   if ($warpStatus -ne "connected") {
@@ -194,4 +198,7 @@ while ($true) {
   }
 
   Start-Sleep -Seconds $PollInterval
+}
+} finally {
+  Remove-Item "$PSScriptRoot\.monitor.pid" -Force -ErrorAction SilentlyContinue
 }
