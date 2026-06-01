@@ -12,7 +12,7 @@ $DataDir     = "$env:LOCALAPPDATA\Cloudflare\Warp"
 $StateFile   = "$PSScriptRoot\.last-error.txt"
 $LogPath     = if ($LogFile) { $LogFile } else { "$PSScriptRoot\warp-rotator.log" }
 
-function Log { param([string]$Msg) $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss"; "$t $Msg" | Tee-Object -FilePath $LogPath -Append }
+function Log { param([string]$Msg) $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss"; "$t $Msg" | Out-File -FilePath $LogPath -Append; Write-Host "$t $Msg" }
 
 function Get-WarpStatus {
   try {

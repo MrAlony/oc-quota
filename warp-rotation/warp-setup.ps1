@@ -7,7 +7,7 @@ param(
 $WarpCli = "C:\Program Files\Cloudflare\Cloudflare WARP\warp-cli.exe"
 $LogPath = "$PSScriptRoot\warp-setup.log"
 
-function Log { param([string]$Msg) $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss"; "$t $Msg" | Tee-Object -FilePath $LogPath -Append }
+function Log { param([string]$Msg) $t = Get-Date -Format "yyyy-MM-dd HH:mm:ss"; "$t $Msg" | Out-File -FilePath $LogPath -Append; Write-Host "$t $Msg" }
 function Step { param([string]$Msg) Write-Host "`n>>> $Msg" -ForegroundColor Cyan; Log ">>> $Msg" }
 
 function Check-Command($cmd, $label) {
