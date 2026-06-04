@@ -19,26 +19,20 @@ your app → 9Router → Cloudflare Warp (SOCKS5) → opencode.ai
 
 | File | Purpose |
 |---|---|
-| `warp-setup.ps1` | One-time setup — verifies prereqs, creates proxy pool, binds to OpenCode Free, tests the chain |
-| `warp-rotator.ps1` | Polls 9Router for 429 errors from OpenCode Free, auto-rotates Warp IP on detection |
+| `warp-menu.bat` | All-in-one interactive menu to setup, monitor, and manually control the Warp IP rotation |
 
 ## Usage
 
 ```powershell
-# First time setup (creates pool, binds, starts monitor)
-.\warp-setup.ps1
+# Open the interactive menu
+.\warp-menu.bat
 
-# After PC restart
-.\warp-setup.ps1
-
-# Just start monitoring (already set up)
-.\warp-rotator.ps1
-
-# Manual IP rotation
-.\warp-rotator.ps1 -ForceRotate
-
-# Setup without starting monitor
-.\warp-setup.ps1 -SkipMonitor
+# From the menu, you can:
+# 1. Run Setup (creates pool, binds OpenCode Free, tests the connection)
+# 2. Start Monitor in the background (hidden)
+# 3. Start Monitor with live logs
+# 4. Stop Monitor
+# 5. Force Rotate IP manually
 ```
 
 ## How rotation works
