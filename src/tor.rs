@@ -94,12 +94,13 @@ pub async fn run_tor_manager(state: SharedState) {
 
         // Write torrc
         let torrc_content = format!(
-            "SocksPort {}\nControlPort {}\nDataDirectory {}\nGeoIPFile {}\nGeoIPv6File {}\n",
+            "SocksPort {}\nControlPort {}\nDataDirectory {}\nGeoIPFile {}\nGeoIPv6File {}\nLog notice file {}\n",
             socks_port,
             control_port,
             instance_path.replace("\\", "/"),
             format!("{}/data/tor/geoip", tools_dir).replace("\\", "/"),
-            format!("{}/data/tor/geoip6", tools_dir).replace("\\", "/")
+            format!("{}/data/tor/geoip6", tools_dir).replace("\\", "/"),
+            format!("{}/notice.log", instance_path).replace("\\", "/")
         );
         std::fs::write(&torrc_path, torrc_content).unwrap();
 
@@ -116,11 +117,14 @@ pub async fn run_tor_manager(state: SharedState) {
             #[cfg(windows)]
             use std::os::windows::process::CommandExt;
 
+            let stdout_file = std::fs::File::create(format!("{}\\stdout.log", instance_path)).unwrap();
+            let stderr_file = std::fs::File::create(format!("{}\\stderr.log", instance_path)).unwrap();
+
             let mut command = Command::new(&exe);
             command.arg("-f")
                    .arg(&torrc_path)
-                   .stdout(Stdio::null())
-                   .stderr(Stdio::null());
+                   .stdout(stdout_file)
+                   .stderr(stderr_file);
             
             #[cfg(windows)]
             command.creation_flags(0x08000000); // CREATE_NO_WINDOW
@@ -150,6 +154,10 @@ pub async fn run_tor_manager(state: SharedState) {
             s.proxy_pools.push(pool);
         }
 
+        // Stagger the startup of each instance slightly to avoid hammering the Tor directory
+        // authorities all at the exact same millisecond on a fresh bootstrap.
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
         // Spawn IP fetching task
         let state_clone = state.clone();
         tokio::spawn(async move {
@@ -165,9 +173,11 @@ pub async fn run_tor_manager(state: SharedState) {
                 
                 if let Ok(mut stream) = tokio::net::TcpStream::connect(&target).await {
                     let _ = stream.write_all(b"AUTHENTICATE\r\n").await;
-                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    let mut buf = [0; 1024];
+                    // Read and discard the 250 OK from AUTHENTICATE
+                    let _ = stream.read(&mut buf).await;
+                    
                     if stream.write_all(b"GETINFO status/bootstrap-phase\r\n").await.is_ok() {
-                        let mut buf = [0; 1024];
                         if let Ok(n) = stream.read(&mut buf).await {
                             let response = String::from_utf8_lossy(&buf[..n]);
                             if let Some(idx) = response.find("PROGRESS=") {
