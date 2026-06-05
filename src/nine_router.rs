@@ -26,6 +26,8 @@ pub async fn run_9router(state: SharedState) {
         let mut command = Command::new("cmd");
         command.arg("/c")
                .arg(cmd_path)
+               .arg("--tray")
+               .arg("--no-browser")
                .env("PORT", "20128")
                .stdout(Stdio::null())
                .stderr(Stdio::null());
@@ -55,8 +57,27 @@ pub async fn run_9router(state: SharedState) {
 }
 
 async fn configure_9router(state: SharedState) {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .unwrap();
     
+    // Wait for 9router to become available
+    let mut is_up = false;
+    for _ in 0..15 {
+        if client.get("http://127.0.0.1:20128/api/proxy-pools").send().await.is_ok() {
+            is_up = true;
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
+
+    if !is_up {
+        let mut s = state.write();
+        s.log("Warning: 9Router failed to start or didn't respond in time.".to_string());
+        return;
+    }
+
     // 1. Get all proxy pools to see if ours exists
     let mut pool_id = None;
     if let Ok(res) = client.get("http://127.0.0.1:20128/api/proxy-pools").send().await {
