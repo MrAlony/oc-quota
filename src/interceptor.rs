@@ -57,31 +57,45 @@ async fn handle_request(
     let uri = req.uri().clone();
     let headers = req.headers().clone();
     
-    println!("DEBUG: Incoming request: {} {}", method, uri);
+    {
+        let mut s = state.write();
+        s.log(format!("DEBUG: Incoming request: {} {}", method, uri));
+    }
 
     if method == hyper::Method::CONNECT {
         if let Some(addr) = req.uri().authority().map(|auth| auth.to_string()) {
+            let state_for_task = state.clone();
             tokio::task::spawn(async move {
                 match hyper::upgrade::on(req).await {
                     Ok(upgraded) => {
-                        println!("DEBUG: Upgrade successful for {}", addr);
+                        {
+                            let mut s = state_for_task.write();
+                            s.log(format!("DEBUG: Upgrade successful for {}", addr));
+                        }
                         let mut io = hyper_util::rt::TokioIo::new(upgraded);
                         if let Ok(mut server) = tokio::net::TcpStream::connect(addr.clone()).await {
-                            println!("DEBUG: Connected to target TCP server for {}", addr);
+                            {
+                                let mut s = state_for_task.write();
+                                s.log(format!("DEBUG: Connected to target TCP server for {}", addr));
+                            }
                             match tokio::io::copy_bidirectional(&mut io, &mut server).await {
                                 Ok((to_server, to_client)) => {
-                                    println!("DEBUG: Tunnel closed for {} ({} bytes up, {} bytes down)", addr, to_server, to_client);
+                                    let mut s = state_for_task.write();
+                                    s.log(format!("DEBUG: Tunnel closed for {} ({} bytes up, {} bytes down)", addr, to_server, to_client));
                                 }
                                 Err(e) => {
-                                    println!("DEBUG: Tunnel error for {}: {}", addr, e);
+                                    let mut s = state_for_task.write();
+                                    s.log(format!("DEBUG: Tunnel error for {}: {}", addr, e));
                                 }
                             }
                         } else {
-                            println!("DEBUG: Failed to connect to target TCP server for {}", addr);
+                            let mut s = state_for_task.write();
+                            s.log(format!("DEBUG: Failed to connect to target TCP server for {}", addr));
                         }
                     }
                     Err(e) => {
-                        println!("DEBUG: Upgrade failed: {}", e);
+                        let mut s = state_for_task.write();
+                        s.log(format!("DEBUG: Upgrade failed: {}", e));
                     }
                 }
             });
