@@ -81,8 +81,12 @@ pub async fn run_tor_manager(state: SharedState) {
 
         // Write torrc
         let torrc_content = format!(
-            "SocksPort {}\nControlPort {}\nDataDirectory {}\nExitNodes {{US}},{{UK}},{{CA}},{{DE}},{{FR}}\nStrictNodes 0\n",
-            socks_port, control_port, instance_path
+            "SocksPort {}\nControlPort {}\nDataDirectory {}\nGeoIPFile {}\nGeoIPv6File {}\n",
+            socks_port,
+            control_port,
+            instance_path.replace("\\", "/"),
+            format!("{}/data/tor/geoip", tools_dir).replace("\\", "/"),
+            format!("{}/data/tor/geoip6", tools_dir).replace("\\", "/")
         );
         std::fs::write(&torrc_path, torrc_content).unwrap();
 
@@ -137,9 +141,45 @@ pub async fn run_tor_manager(state: SharedState) {
         let state_clone = state.clone();
         tokio::spawn(async move {
             let proxy = reqwest::Proxy::all(&proxy_url).unwrap();
-            let client = reqwest::Client::builder().proxy(proxy).build().unwrap();
+            let client = reqwest::Client::builder().proxy(proxy).timeout(Duration::from_secs(10)).build().unwrap();
 
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+            let mut attempts = 0;
             loop {
+                let target = format!("127.0.0.1:{}", control_port);
+                let mut is_bootstrapped = false;
+                
+                if let Ok(mut stream) = tokio::net::TcpStream::connect(&target).await {
+                    let _ = stream.write_all(b"AUTHENTICATE\r\n").await;
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    if stream.write_all(b"GETINFO status/bootstrap-phase\r\n").await.is_ok() {
+                        let mut buf = [0; 1024];
+                        if let Ok(n) = stream.read(&mut buf).await {
+                            let response = String::from_utf8_lossy(&buf[..n]);
+                            if let Some(idx) = response.find("PROGRESS=") {
+                                let rest = &response[idx+9..];
+                                let progress = rest.split(' ').next().unwrap_or("0");
+                                
+                                let mut s = state_clone.write();
+                                if let Some(instance) = s.warp_instances.get_mut(&socks_port) {
+                                    if progress == "100" {
+                                        instance.status = "Fetching IP...".to_string();
+                                        is_bootstrapped = true;
+                                    } else {
+                                        instance.status = format!("Bootstrapping {}%", progress);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !is_bootstrapped {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    continue;
+                }
+
                 match client.get("https://api.ipify.org").send().await {
                     Ok(resp) => {
                         if let Ok(ip) = resp.text().await {
@@ -152,7 +192,16 @@ pub async fn run_tor_manager(state: SharedState) {
                             break;
                         }
                     }
-                    Err(_) => {}
+                    Err(_) => {
+                        attempts += 1;
+                        if attempts > 10 {
+                            let mut s = state_clone.write();
+                            if let Some(instance) = s.warp_instances.get_mut(&socks_port) {
+                                instance.status = "Failed (IP Fetch Error)".to_string();
+                            }
+                            break;
+                        }
+                    }
                 }
                 tokio::time::sleep(Duration::from_secs(3)).await;
             }
