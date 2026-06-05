@@ -3,15 +3,27 @@ use std::process::Stdio;
 use tokio::process::Command;
 use std::env;
 
-pub async fn run_9router(state: SharedState) {
-    // 1. Check if 9Router is already running
-    let is_running = tokio::net::TcpStream::connect("127.0.0.1:20128").await.is_ok();
-    
-    if is_running {
-        {
-            let mut s = state.write();
-            s.log("9Router is already running. Skipping launch.".to_string());
+async fn find_9router_port(client: &reqwest::Client) -> Option<u16> {
+    for port in [20130, 20128] {
+        if client.get(format!("http://127.0.0.1:{}/api/proxy-pools", port)).send().await.is_ok() 
+        || client.get(format!("http://localhost:{}/api/proxy-pools", port)).send().await.is_ok() {
+            return Some(port);
         }
+    }
+    None
+}
+
+pub async fn run_9router(state: SharedState) {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .unwrap();
+
+    let mut running_port = find_9router_port(&client).await;
+    
+    if let Some(port) = running_port {
+        let mut s = state.write();
+        s.log(format!("9Router is already running on port {}. Skipping launch.", port));
     } else {
         {
             let mut s = state.write();
@@ -28,7 +40,6 @@ pub async fn run_9router(state: SharedState) {
                .arg(cmd_path)
                .arg("--tray")
                .arg("--no-browser")
-               .env("PORT", "20128")
                .stdout(Stdio::null())
                .stderr(Stdio::null());
 
@@ -46,46 +57,12 @@ pub async fn run_9router(state: SharedState) {
                 tokio::spawn(async move {
                     let _ = c.wait().await;
                 });
-                // Wait a moment for it to start
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-            }
-        }
-    }
-
-    // Configure 9Router to use our Custom Base URL!
-    configure_9router(state.clone()).await;
-}
-
-async fn configure_9router(state: SharedState) {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(3))
-        .build()
-        .unwrap();
-    
-    // Wait for 9router to become available
-    let mut is_up = false;
-    for _ in 0..15 {
-        if client.get("http://127.0.0.1:20128/api/proxy-pools").send().await.is_ok() {
-            is_up = true;
-            break;
-        }
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    }
-
-    if !is_up {
-        let mut s = state.write();
-        s.log("Warning: 9Router failed to start or didn't respond in time.".to_string());
-        return;
-    }
-
-    // 1. Get all proxy pools to see if ours exists
-    let mut pool_id = None;
-    if let Ok(res) = client.get("http://127.0.0.1:20128/api/proxy-pools").send().await {
-        if let Ok(pools) = res.json::<serde_json::Value>().await {
-            if let Some(arr) = pools["proxyPools"].as_array() {
-                for p in arr {
-                    if p["name"] == "OC-Quota-Rust-Interceptor" {
-                        pool_id = p["id"].as_str().map(|s| s.to_string());
+                
+                // Wait and find the port it started on
+                for _ in 0..15 {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    if let Some(p) = find_9router_port(&client).await {
+                        running_port = Some(p);
                         break;
                     }
                 }
@@ -93,7 +70,52 @@ async fn configure_9router(state: SharedState) {
         }
     }
 
-    // 2. If it doesn't exist, create it!
+    if let Some(port) = running_port {
+        configure_9router(state.clone(), port).await;
+    } else {
+        let mut s = state.write();
+        s.log("Warning: 9Router failed to start or didn't respond in time.".to_string());
+    }
+}
+
+async fn configure_9router(state: SharedState, port: u16) {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .unwrap();
+    
+    let base_url = format!("http://127.0.0.1:{}", port);
+    
+    // 1. Get all proxy pools
+    let mut pool_id = None;
+    let mut needs_update = false;
+
+    if let Ok(res) = client.get(format!("{}/api/proxy-pools", base_url)).send().await {
+        if let Ok(pools) = res.json::<serde_json::Value>().await {
+            if let Some(arr) = pools["proxyPools"].as_array() {
+                for p in arr {
+                    if p["name"] == "OC-Quota-Rust-Interceptor" {
+                        pool_id = p["id"].as_str().map(|s| s.to_string());
+                        if p["proxyUrl"] != "http://127.0.0.1:20131" {
+                            needs_update = true;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. If it exists but wrong URL, delete it so we can recreate it properly
+    if needs_update {
+        if let Some(ref id) = pool_id {
+            let _ = client.delete(format!("{}/api/proxy-pools/{}", base_url, id)).send().await;
+            pool_id = None; // Reset so we create a fresh one
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+        }
+    }
+
+    // 3. Create it if it doesn't exist
     if pool_id.is_none() {
         let body = serde_json::json!({
             "name": "OC-Quota-Rust-Interceptor",
@@ -101,14 +123,14 @@ async fn configure_9router(state: SharedState) {
             "type": "http",
             "isActive": true
         });
-        if let Ok(res) = client.post("http://127.0.0.1:20128/api/proxy-pools").json(&body).send().await {
+        if let Ok(res) = client.post(format!("{}/api/proxy-pools", base_url)).json(&body).send().await {
             if let Ok(p) = res.json::<serde_json::Value>().await {
                 pool_id = p["id"].as_str().map(|s| s.to_string());
             }
         }
     }
 
-    // 3. Configure the opencode strategy to use BOTH the baseUrl (for unencrypted interception) AND the proxyPoolId (for the UI)
+    // 4. Configure the opencode strategy
     let body = serde_json::json!({
         "providerStrategies": {
             "opencode": {
@@ -119,7 +141,7 @@ async fn configure_9router(state: SharedState) {
     });
 
     let res = client
-        .patch("http://127.0.0.1:20128/api/settings")
+        .patch(format!("{}/api/settings", base_url))
         .json(&body)
         .send()
         .await;
@@ -127,7 +149,7 @@ async fn configure_9router(state: SharedState) {
     match res {
         Ok(r) if r.status().is_success() => {
             let mut s = state.write();
-            s.log("Auto-configured 9Router with Rust Proxy Pool!".to_string());
+            s.log(format!("Auto-configured 9Router (Port {}) with Rust Proxy Pool!", port));
         }
         _ => {
             let mut s = state.write();

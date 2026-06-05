@@ -19,6 +19,19 @@ pub async fn run_tor_manager(state: SharedState) {
         s.log("Tor Manager starting...".to_string());
     }
 
+    // Kill any existing tor processes to release locks and ports
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(&["/F", "/IM", "tor.exe"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await;
+        // Give the OS a moment to clean up handles
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+    }
+
     // Auto-download Tor Expert Bundle if not present
     if !Path::new(&tor_exe).exists() {
         {
