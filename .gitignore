@@ -2,3 +2,5 @@
 *.log
 # State tracking
 .last-error.txt
+target/
+instances/
